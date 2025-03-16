@@ -6,7 +6,7 @@ import json
 import os
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 
@@ -20,7 +20,6 @@ env_keys = [
     "AWS_PRIVATE_KEY_PATH",
     "AWS_CERTIFICATE_PATH",
     "SENSOR_TOPIC",
-    "HEARTBEAT_TOPIC",
     "INTERVAL",
     "GPIO_PIN"
 ]
@@ -32,7 +31,7 @@ if missing_keys:
     logging.error(f"環境変数に未設定の項目があります:{missing_keys}")
     exit(1)
 
-client, endpoint_url, root_ca_path, private_key_path, certificate_path, sensor_topic, heartbeat_topic, interval, gpio_pin = (
+client, endpoint_url, root_ca_path, private_key_path, certificate_path, sensor_topic, interval, gpio_pin = (
     env_values.values()
 )
 
@@ -50,7 +49,7 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
-logging.getLogger('AWSIoTPythonSDK').setLevel(logging.WARNING)
+logging.getLogger('AWSIoTPythonSDK').setLevel(logging.CRITICAL)
 
 # 初期化
 myMQTTClient = AWSIoTMQTTClient(client)
@@ -84,20 +83,21 @@ def connect_to_aws():
 
         except Exception as e:
             logging.error(f"AWS接続失敗通知：{e}")
-            time.sleep(5)
+            time.sleep(10)
 
 def publish_message():
     """AWSIoTCoreへメッセージを送信"""
 
     # GPIOと時刻の初期状態の入力
     past_value = GPIO.input(gpio_pin)
+    last_open_time = datetime.now()
 
     while True:
         value = GPIO.input(gpio_pin)
+        nowtime = datetime.now()
+
         if value != past_value:
             if value == 1: #扉が開いたとき
-
-                nowtime = datetime.now()
 
                 msgjson = {
                     "timestamp": f"{nowtime}",
@@ -113,6 +113,26 @@ def publish_message():
                     logging.info("通知：AWSとの再接続を試みます")
                     connect_to_aws()
                 
+                last_open_time = datetime.now()
+
+        if nowtime - last_open_time > timedelta(hours=24):
+
+            msgjson = {
+                "timestamp": f"{nowtime}",
+                "not_open": 1
+            }
+
+            try:
+                myMQTTClient.publish(sensor_topic, json.dumps(msgjson), 1)
+                logging.info(f"センサデータ(未開閉)送信成功通知：{msgjson}")
+
+            except Exception as e:
+                logging.error(f"AWSパブリッシュエラー通知：{e}")
+                logging.info("通知：AWSとの再接続を試みます")
+                connect_to_aws()
+
+            last_open_time = datetime.now()
+
         past_value = value
         time.sleep(1)
 
@@ -120,16 +140,15 @@ def send_heartbeat():
     """一定時間ごとに死活監視のメッセージを送信"""
 
     while True:
-
         nowtime = datetime.now()
 
         msgjson = {
             "timestamp": f"{nowtime}",
-            "status": 1
+            "heart_beat": 1
         }
 
         try:
-            myMQTTClient.publish(heartbeat_topic, json.dumps(msgjson), 1)
+            myMQTTClient.publish(sensor_topic, json.dumps(msgjson), 1)
             logging.info(f"ハートビート送信成功通知: {msgjson}")
 
         except Exception as e:
@@ -163,7 +182,6 @@ def main():
         logging.info("通知：プログラム終了")
         myMQTTClient.disconnect()
         GPIO.cleanup()
-        exit(1)
 
 if __name__ == "__main__":
     main()
