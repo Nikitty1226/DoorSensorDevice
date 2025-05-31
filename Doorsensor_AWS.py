@@ -13,34 +13,15 @@ from dotenv import load_dotenv
 # 環境変数読み込み
 load_dotenv()
 
-env_keys = [
-    "CLIENT",
-    "ENDPOINT_URL",
-    "AWS_ROOT_CA_PATH",
-    "AWS_PRIVATE_KEY_PATH",
-    "AWS_CERTIFICATE_PATH",
-    "SENSOR_TOPIC",
-    "INTERVAL",
-    "GPIO_PIN"
-]
-
-env_values = {key: os.getenv(key) for key in env_keys}
-
-missing_keys = [key for key in env_keys if env_values[key] is None]
-if missing_keys:
-    logging.error(f"環境変数に未設定の項目があります:{missing_keys}")
-    exit(1)
-
-client, endpoint_url, root_ca_path, private_key_path, certificate_path, sensor_topic, interval, gpio_pin = (
-    env_values.values()
-)
-
-try:
-    interval = int(interval)
-    gpio_pin = int(gpio_pin)
-except:
-    logging.error("環境変数 INTERVAL・GPIO_PIN の値が無効です")
-    exit(1)
+client = os.getenv("CLIENT")
+endpoint_url = os.getenv("ENDPOINT_URL")
+root_ca_path = os.getenv("AWS_ROOT_CA_PATH")
+private_key_path = os.getenv("AWS_PRIVATE_KEY_PATH")
+certificate_path = os.getenv("AWS_CERTIFICATE_PATH")
+sensor_topic = os.getenv("SENSOR_TOPIC")
+interval = int(os.getenv("INTERVAL"))
+reconnection_interval = int(os.getenv("RECONNECTION_INTERVAL"))
+gpio_pin = int(os.getenv("GPIO_PIN"))
 
 # ログ設定
 logging.basicConfig(
@@ -75,63 +56,39 @@ logging.info("通知：プログラム開始")
 
 def connect_to_aws():
     """AWS IoT Core への接続"""
+
     while True:
         try:
             myMQTTClient.connect()
             logging.info("通知：AWS接続成功")
             break
-
         except Exception as e:
             logging.error(f"AWS接続失敗通知：{e}")
-            time.sleep(10)
+            time.sleep(reconnection_interval)
 
 def publish_message():
     """AWSIoTCoreへメッセージを送信"""
 
     # GPIOと時刻の初期状態の入力
     past_value = GPIO.input(gpio_pin)
-    last_open_time = datetime.now()
 
     while True:
         value = GPIO.input(gpio_pin)
-        nowtime = datetime.now()
+        nowtime = datetime.now().replace(microsecond=0)
 
         if value != past_value:
             if value == 1: #扉が開いたとき
-
                 msgjson = {
                     "timestamp": f"{nowtime}",
                     "sensor_value": value
                 }
-
                 try:
                     myMQTTClient.publish(sensor_topic, json.dumps(msgjson), 1)
                     logging.info(f"センサデータ送信成功通知：{msgjson}")
-
                 except Exception as e:
                     logging.error(f"AWSパブリッシュエラー通知：{e}")
                     logging.info("通知：AWSとの再接続を試みます")
                     connect_to_aws()
-                
-                last_open_time = datetime.now()
-
-        if nowtime - last_open_time > timedelta(hours=24):
-
-            msgjson = {
-                "timestamp": f"{nowtime}",
-                "not_open": 1
-            }
-
-            try:
-                myMQTTClient.publish(sensor_topic, json.dumps(msgjson), 1)
-                logging.info(f"センサデータ(未開閉)送信成功通知：{msgjson}")
-
-            except Exception as e:
-                logging.error(f"AWSパブリッシュエラー通知：{e}")
-                logging.info("通知：AWSとの再接続を試みます")
-                connect_to_aws()
-
-            last_open_time = datetime.now()
 
         past_value = value
         time.sleep(1)
@@ -140,17 +97,14 @@ def send_heartbeat():
     """一定時間ごとに死活監視のメッセージを送信"""
 
     while True:
-        nowtime = datetime.now()
-
+        nowtime = datetime.now().replace(microsecond=0)
         msgjson = {
             "timestamp": f"{nowtime}",
             "heart_beat": 1
         }
-
         try:
             myMQTTClient.publish(sensor_topic, json.dumps(msgjson), 1)
             logging.info(f"ハートビート送信成功通知: {msgjson}")
-
         except Exception as e:
             logging.error(f"ハートビート送信失敗通知: {e}")
             logging.info("通知：AWSとの再接続を試みます")
@@ -165,12 +119,10 @@ def main():
 
         event_thread = threading.Thread(target=publish_message, daemon=True)
         heartbeat_thread = threading.Thread(target=send_heartbeat, daemon=True)
-
         event_thread.start()
         heartbeat_thread.start()
-
         event_thread.join()
-        heartbeat_thread.join()        
+        heartbeat_thread.join()
 
     except KeyboardInterrupt:
         logging.info("通知：手動停止（Control+C）を検知")
