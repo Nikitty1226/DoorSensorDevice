@@ -13,7 +13,10 @@
 使用センサーの詳細：
 - [磁気ドアスイッチ（開閉センサー） - 秋月電子通商](https://akizukidenshi.com/catalog/g/g113371/)  
   型番：**SPS-320N**  
-  GPIO のプルアップ入力として接続してください。 例：センサーの端子をそれぞれGPIO18、GNDへ接続
+  GPIO のプルアップ入力として接続してください。 <br>
+  例：センサーの端子をそれぞれGPIO18、GNDへ接続
+  
+  ![GPIO](./images/GPIO.png)
 
 
 ## 機能概要
@@ -28,6 +31,7 @@
 ## フォルダ構成
 
 ```text
+├── images                # README用画像
 ├── DoorSensorDevice.py   # メインスクリプト
 ├── .env                  # 環境変数設定ファイル（git非管理）
 ├── logfile.log           # ログ出力ファイル（git非管理）
